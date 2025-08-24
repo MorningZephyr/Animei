@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-import torch
 import io
 import os
 import asyncio
@@ -16,10 +15,10 @@ class UIModal(discord.ui.Modal):
         
         # Large text area for main prompt
         self.prompt = discord.ui.TextInput(
-            label="Describe your image",
+            label="Image prompt (use commas between keywords)",
             style=discord.TextStyle.paragraph,  # Multi-line text box
-            placeholder="A mochi girl wearing a pajamas...",
-            max_length=1000,
+            placeholder=" ex: 1girl, mochi, pajamas, sleeping",
+            max_length=400,  # ~75 tokens for CLIP (most words are 1-2 tokens)
             required=True
         )
         
@@ -27,8 +26,8 @@ class UIModal(discord.ui.Modal):
         self.negative = discord.ui.TextInput(
             label="What to avoid (optional)",
             style=discord.TextStyle.paragraph,
-            placeholder="blurry, low quality, distorted, bad anatomy...",
-            max_length=1000,
+            placeholder="bad anatomy, bad hands, blurry, low quality, text, watermark, missing fingers",
+            max_length=300,  # ~50 tokens for negative prompt + safety filters
             required=False
         )
         
@@ -45,8 +44,8 @@ class UIModal(discord.ui.Modal):
         self.cfg_scale = discord.ui.TextInput(
             label="CFG Scale (1.0-20.0)",
             style=discord.TextStyle.short,
-            placeholder="7.5",
-            default="7.5",
+            placeholder="7.0",
+            default="7.0",
             required=False
         )
         
@@ -77,10 +76,10 @@ class UIModal(discord.ui.Modal):
         
         # Parse user inputs with validation
         try:
-            steps = int(self.steps.value) if self.steps.value.isdigit() else 20
+            steps = int(self.steps.value) if self.steps.value.isdigit() else 25
             steps = max(10, min(50, steps))  # Clamp between 10-50
             
-            cfg_scale = float(self.cfg_scale.value) if self.cfg_scale.value.replace('.', '').isdigit() else 7.5
+            cfg_scale = float(self.cfg_scale.value) if self.cfg_scale.value.replace('.', '').isdigit() else 7.0
             cfg_scale = max(1.0, min(20.0, cfg_scale))  # Clamp between 1-20
             
             # Parse dimensions
@@ -97,8 +96,8 @@ class UIModal(discord.ui.Modal):
             
         except:
             # If parsing fails, use defaults
-            steps = 20
-            cfg_scale = 7.5
+            steps = 25
+            cfg_scale = 7.0
             width = height = 512
         
         # Generate image with all the parameters
@@ -141,8 +140,33 @@ sd_bot = StableDiffusionBot()
 # --- Setting the event listener ---
 @bot.event
 async def on_ready():
+    print(f"✅ {bot.user} is online!")
+    
+    # Set loading status
+    await bot.change_presence(
+        status=discord.Status.idle,  # Yellow dot
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="Loading AI Model..."
+        )
+    )
+    
+    # Start loading model in background
     asyncio.create_task(sd_bot.load_model())
-    print(f"✅ {bot.user} is online! Loading model in background...")
+    
+    # Wait for model to load
+    while sd_bot.pipe is None:
+        await asyncio.sleep(1)
+    
+    # Update status when ready
+    await bot.change_presence(
+        status=discord.Status.online,  # Green dot
+        activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name="/generate"
+        )
+    )
+    print("✅ AI model loaded and ready!")
 
 @bot.event
 async def setup_hook():
@@ -156,4 +180,11 @@ async def generate_modal_command(interaction: discord.Interaction):
     await interaction.response.send_modal(modal)
 
 if __name__ == "__main__":
-    bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+    try:
+        bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+    except KeyboardInterrupt:
+        print("\n⚠️ Shutdown requested by user (Ctrl+C)")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+    finally:
+        print("✅ Bot shutdown complete!")

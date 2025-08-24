@@ -48,7 +48,7 @@ class StableDiffusionBot:
             # Memory optimizations for SD 1.5
             if self.device == "cuda":
                 self.pipe.enable_attention_slicing()
-                # xformer got compatibility issues so might not work
+                # Optional: enable memory efficient attention if available
                 try:
                     self.pipe.enable_memory_efficient_attention()
                     print("✅ Memory efficient attention enabled")
@@ -69,7 +69,14 @@ class StableDiffusionBot:
         safety_filters = "nsfw, nude, inappropriate, gore"
         negative_prompt = safety_filters if not negative_prompt else f"{negative_prompt}, {safety_filters}"
 
+        # Add quality tags that WebUI uses
+        quality_tags = "masterpiece, best quality, "
+        prompt = quality_tags + prompt if not prompt.startswith(quality_tags) else prompt
+
         # Use recommended settings for Anything V5
+        print(f"🎨 Generating with prompt: {prompt[:50]}...")
+        print(f"   Steps: {num_inference_steps}, CFG: {cfg_scale}, Size: {width}x{height}")
+        
         result = self.pipe(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -78,4 +85,6 @@ class StableDiffusionBot:
             width=width,
             height=height,
         )
+        
+        print("✅ Image generation completed")
         return result.images[0]
