@@ -1,15 +1,10 @@
 import discord
 from discord.ext import commands
 import torch
-from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
-from PIL import Image
 import io
 import os
-import time
 import asyncio
 from stable_diffusion_bot import StableDiffusionBot
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,7 +18,7 @@ class UIModal(discord.ui.Modal):
         self.prompt = discord.ui.TextInput(
             label="Describe your image",
             style=discord.TextStyle.paragraph,  # Multi-line text box
-            placeholder="A mochi girl staring at a pajamas...",
+            placeholder="A mochi girl wearing a pajamas...",
             max_length=1000,
             required=True
         )

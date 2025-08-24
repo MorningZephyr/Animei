@@ -6,5 +6,5 @@ diffusers==0.25.0
 transformers==4.37.2
 accelerate==0.27.2
 safetensors==0.6.2
-Pillow==11.0.0
 numpy==1.26.4
+omegaconf==2.3.0
