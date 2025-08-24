@@ -36,8 +36,8 @@ class UIModal(discord.ui.Modal):
         self.steps = discord.ui.TextInput(
             label="Steps (10-50)",
             style=discord.TextStyle.short,
-            placeholder="20",
-            default="20",
+            placeholder="25",
+            default="25",
             required=False
         )
         
@@ -149,8 +149,7 @@ async def setup_hook():
     await bot.tree.sync()  # Sync slash commands with Discord
     print("Slash commands synced!")
 
-# --- NEW: Modal-based Generate Command ---
-@bot.tree.command(name="generate", description="Generate an AI image using advanced modal interface")
+@bot.tree.command(name="generate", description="Press Enter for modal interface!")
 async def generate_modal_command(interaction: discord.Interaction):
     """Opens a modal form for advanced image generation"""
     modal = UIModal()
