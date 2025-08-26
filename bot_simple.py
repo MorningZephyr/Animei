@@ -3,8 +3,9 @@ from discord.ext import commands
 import io
 import os
 import asyncio
-from stable_diffusion_bot import StableDiffusionBot
+from stable_diffusion_bot import StableDiffusionBot, GenerationRequest
 from dotenv import load_dotenv
+import uuid
 
 load_dotenv()
 
@@ -71,7 +72,13 @@ class UIModal(discord.ui.Modal):
             await interaction.response.send_message("⏳ Model is still loading, please wait a moment and try again!")
             return
         
-        # Defer the response since image generation takes time
+        # Check if queue is full
+        queue_status = sd_bot.get_queue_status()
+        if queue_status["queue_size"] >= queue_status["max_size"]:
+            await interaction.response.send_message("❌ Queue is full! Please try again later.")
+            return
+        
+        # Defer the response since we're adding to queue
         await interaction.response.defer()
         
         # Parse user inputs with validation
@@ -100,35 +107,80 @@ class UIModal(discord.ui.Modal):
             cfg_scale = 7.0
             width = height = 512
         
-        # Generate image with all the parameters
+        # Create callback function to send image when ready
+        async def send_completed_image(image, request):
+            """Callback function to send the generated image to Discord"""
+            try:
+                # Convert PIL image to Discord file
+                buffer = io.BytesIO()
+                image.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                file = discord.File(buffer, filename=f"generated_{request.request_id[:8]}.png")
+                
+                # Create result embed
+                embed = discord.Embed(title="✨ Generated Image", color=0x00ff00)
+                embed.add_field(name="Request ID", value=request.request_id[:8], inline=True)
+                embed.add_field(name="Steps", value=str(request.num_inference_steps), inline=True)
+                embed.add_field(name="CFG Scale", value=str(request.cfg_scale), inline=True)
+                embed.add_field(name="Size", value=f"{request.width}x{request.height}", inline=True)
+                embed.add_field(name="Prompt", value=request.prompt[:100] + "..." if len(request.prompt) > 100 else request.prompt, inline=False)
+                
+                # Send the final image
+                await interaction.followup.send(embed=embed, file=file)
+                print(f"📤 Sent completed image for request {request.request_id[:8]} to user {request.user_id}")
+                
+            except Exception as e:
+                error_embed = discord.Embed(title="❌ Image Delivery Failed", color=0xff0000)
+                error_embed.add_field(name="Request ID", value=request.request_id[:8], inline=True)
+                error_embed.add_field(name="Error", value=str(e), inline=False)
+                await interaction.followup.send(embed=error_embed)
+                print(f"❌ Failed to send image for request {request.request_id[:8]}: {e}")
+
+        # Create generation request
         try:
-            image = await sd_bot.generate_image(
+            request = GenerationRequest(
+                request_id=str(uuid.uuid4()),
                 prompt=self.prompt.value,
                 negative_prompt=self.negative.value,
                 num_inference_steps=steps,
                 cfg_scale=cfg_scale,
                 width=width,
-                height=height
+                height=height,
+                user_id=str(interaction.user.id),
+                channel_id=str(interaction.channel.id),
+                callback=send_completed_image,
+                callback_data={"interaction": interaction}
             )
             
-            # Convert to Discord file
-            buffer = io.BytesIO()
-            image.save(buffer, format='PNG')
-            buffer.seek(0)
+            # Add to queue
+            success = await sd_bot.add_to_queue(request)
+            if not success:
+                await interaction.followup.send("❌ Failed to add request to queue. Please try again later.")
+                return
             
-            file = discord.File(buffer, filename="generated_image.png")
+            # Get current queue status
+            queue_status = sd_bot.get_queue_status()
             
-            # Create info embed
-            embed = discord.Embed(title="✨ Generated Image", color=0x00ff00)
+            # Send queue confirmation
+            embed = discord.Embed(title="📥 Request Added to Queue", color=0xffa500)
+            embed.add_field(name="Request ID", value=request.request_id[:8], inline=True)
+            embed.add_field(name="Position in Queue", value=str(queue_status["queue_size"]), inline=True)
+            embed.add_field(name="Estimated Wait", value=f"~{queue_status['queue_size'] * 30} seconds", inline=True)
             embed.add_field(name="Prompt", value=self.prompt.value[:100] + "..." if len(self.prompt.value) > 100 else self.prompt.value, inline=False)
-            embed.add_field(name="Steps", value=str(steps), inline=True)
-            embed.add_field(name="CFG Scale", value=str(cfg_scale), inline=True)
-            embed.add_field(name="Size", value=f"{width}x{height}", inline=True)
             
-            await interaction.followup.send(embed=embed, file=file)
+            # Add note about current processing
+            if queue_status["is_processing"]:
+                embed.add_field(name="Currently Processing", value=f"Request {queue_status['current_request_id']}", inline=False)
+            
+            # Add delivery info
+            embed.add_field(name="📬 Delivery", value="Your image will be sent here automatically when ready!", inline=False)
+            embed.set_footer(text="You can use /queue to check status anytime")
+            
+            await interaction.followup.send(embed=embed)
             
         except Exception as e:
-            await interaction.followup.send(f"❌ Error generating image: {str(e)}")
+            await interaction.followup.send(f"❌ Error adding request to queue: {str(e)}")
 
 # --- Loading the Bot ---
 intents = discord.Intents.default()
@@ -158,6 +210,9 @@ async def on_ready():
     while sd_bot.pipe is None:
         await asyncio.sleep(1)
     
+    # Start the queue worker
+    await sd_bot.start_queue_worker()
+    
     # Update status when ready
     await bot.change_presence(
         status=discord.Status.online,  # Green dot
@@ -166,7 +221,7 @@ async def on_ready():
             name="/generate"
         )
     )
-    print("✅ AI model loaded and ready!")
+    print("✅ AI model loaded and queue worker started!")
 
 @bot.event
 async def setup_hook():
@@ -179,6 +234,24 @@ async def generate_modal_command(interaction: discord.Interaction):
     modal = UIModal()
     await interaction.response.send_modal(modal)
 
+@bot.tree.command(name="queue", description="Check the current queue status")
+async def queue_status_command(interaction: discord.Interaction):
+    """Shows current queue status"""
+    status = sd_bot.get_queue_status()
+    
+    embed = discord.Embed(title="📊 Queue Status", color=0x00ff00)
+    embed.add_field(name="Requests in Queue", value=str(status["queue_size"]), inline=True)
+    embed.add_field(name="Max Queue Size", value=str(status["max_size"]), inline=True)
+    embed.add_field(name="Processing", value="Yes" if status["is_processing"] else "No", inline=True)
+    
+    if status["current_request_id"]:
+        embed.add_field(name="Current Request", value=status["current_request_id"], inline=False)
+    
+    if status["queue_size"] > 0:
+        embed.add_field(name="Estimated Wait", value=f"~{status['queue_size'] * 30} seconds", inline=False)
+    
+    await interaction.response.send_message(embed=embed)
+
 if __name__ == "__main__":
     try:
         bot.run(os.getenv('DISCORD_BOT_TOKEN'))
@@ -187,4 +260,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Error: {e}")
     finally:
+        # Clean up resources
+        asyncio.run(sd_bot.stop_queue_worker())
+        sd_bot.cleanup()
         print("✅ Bot shutdown complete!")
