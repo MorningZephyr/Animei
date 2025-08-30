@@ -32,39 +32,9 @@ class UIModal(discord.ui.Modal):
             required=False
         )
         
-        # Steps
-        self.steps = discord.ui.TextInput(
-            label="Steps (10-50)",
-            style=discord.TextStyle.short,
-            placeholder="25",
-            default="25",
-            required=False
-        )
-        
-        # CFG Scale
-        self.cfg_scale = discord.ui.TextInput(
-            label="CFG Scale (1.0-20.0)",
-            style=discord.TextStyle.short,
-            placeholder="7.0",
-            default="7.0",
-            required=False
-        )
-        
-        # Image dimensions
-        self.dimensions = discord.ui.TextInput(
-            label="Size (width x height)",
-            style=discord.TextStyle.short,
-            placeholder="512x512",
-            default="512x512",
-            required=False
-        )
-        
         # Add all inputs to the modal
         self.add_item(self.prompt)
         self.add_item(self.negative)
-        self.add_item(self.steps)
-        self.add_item(self.cfg_scale)
-        self.add_item(self.dimensions)
     
     async def on_submit(self, interaction: discord.Interaction):
         # Check if model is still loading
@@ -81,32 +51,6 @@ class UIModal(discord.ui.Modal):
         # Defer the response since we're adding to queue
         await interaction.response.defer()
         
-        # Parse user inputs with validation
-        try:
-            steps = int(self.steps.value) if self.steps.value.isdigit() else 25
-            steps = max(10, min(50, steps))  # Clamp between 10-50
-            
-            cfg_scale = float(self.cfg_scale.value) if self.cfg_scale.value.replace('.', '').isdigit() else 7.0
-            cfg_scale = max(1.0, min(20.0, cfg_scale))  # Clamp between 1-20
-            
-            # Parse dimensions
-            if 'x' in self.dimensions.value.lower():
-                width, height = self.dimensions.value.lower().split('x')
-                width = int(width.strip()) if width.strip().isdigit() else 512
-                height = int(height.strip()) if height.strip().isdigit() else 512
-            else:
-                width = height = 512
-            
-            # Clamp dimensions to reasonable values
-            width = max(256, min(1024, width))
-            height = max(256, min(1024, height))
-            
-        except:
-            # If parsing fails, use defaults
-            steps = 25
-            cfg_scale = 7.0
-            width = height = 512
-        
         # Create callback function to send image when ready
         async def send_completed_image(image, request):
             """Callback function to send the generated image to Discord"""
@@ -121,9 +65,6 @@ class UIModal(discord.ui.Modal):
                 # Create result embed
                 embed = discord.Embed(title="✨ Generated Image", color=0x00ff00)
                 embed.add_field(name="Request ID", value=request.request_id[:8], inline=True)
-                embed.add_field(name="Steps", value=str(request.num_inference_steps), inline=True)
-                embed.add_field(name="CFG Scale", value=str(request.cfg_scale), inline=True)
-                embed.add_field(name="Size", value=f"{request.width}x{request.height}", inline=True)
                 embed.add_field(name="Prompt", value=request.prompt[:100] + "..." if len(request.prompt) > 100 else request.prompt, inline=False)
                 
                 # Send the final image
@@ -143,10 +84,10 @@ class UIModal(discord.ui.Modal):
                 request_id=str(uuid.uuid4()),
                 prompt=self.prompt.value,
                 negative_prompt=self.negative.value,
-                num_inference_steps=steps,
-                cfg_scale=cfg_scale,
-                width=width,
-                height=height,
+                num_inference_steps=25,
+                cfg_scale=3.5,
+                width=512,
+                height=512,
                 user_id=str(interaction.user.id),
                 channel_id=str(interaction.channel.id),
                 callback=send_completed_image,
