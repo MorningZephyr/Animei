@@ -84,7 +84,7 @@ class UIModal(discord.ui.Modal):
                 request_id=str(uuid.uuid4()),
                 prompt=self.prompt.value,
                 negative_prompt=self.negative.value,
-                num_inference_steps=25,
+                num_inference_steps=28,
                 cfg_scale=3.5,
                 width=512,
                 height=512,
