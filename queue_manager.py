@@ -14,38 +14,39 @@ class QueueManager:
         self.image_generator = image_generator  # Referencing the image generator class
         
         # Queue system for handling multiple requests
-        self.request_queue = asyncio.Queue(maxsize=50)  # Limit queue size
+        self.generation_queue = asyncio.Queue(maxsize=50)  # Limit queue size
         self.current_request: Optional[GenerationRequest] = None
         self.is_processing: bool = False
-        self.queue_worker: Optional[asyncio.Task] = None
+        self.worker_task: Optional[asyncio.Task] = None
     
-    async def start_queue_worker(self):
+    async def start_worker(self):
         """Start the queue worker to process requests sequentially"""
-        if self.queue_worker is None or self.queue_worker.done():
-            self.queue_worker = asyncio.create_task(self._queue_worker())
+        if self.worker_task is None or self.worker_task.done():
+            self.worker_task = asyncio.create_task(self._process_generation_requests())
             print("🔄 Queue worker started")
     
-    async def stop_queue_worker(self):
+    async def stop_worker(self):
         """Stop the queue worker"""
-        if self.queue_worker and not self.queue_worker.done():
-            self.queue_worker.cancel()
+        if self.worker_task and not self.worker_task.done():
+            self.worker_task.cancel()
             try:
-                await self.queue_worker
+                await self.worker_task
             except asyncio.CancelledError:
                 pass
             print("⏹️ Queue worker stopped")
     
-    async def _queue_worker(self):
+    async def _process_generation_requests(self):
         """Background worker that processes requests from the queue"""
         print("🔄 Queue worker running...")
         while True:
             try:
-                # Wait for a request (this blocks if queue is empty)
-                request = await self.request_queue.get()
+                # Wait for a request (entire function falls asleep if queue is empty)
+                # Control is yielded to event loop until request is enqueued
+                request = await self.generation_queue.get() # Checks the queue size and blocks if it's empty
                 
                 self.current_request = request
                 self.is_processing = True
-                print(f"🎨 Processing request {request.request_id[:8]}... (Queue: {self.request_queue.qsize()})")
+                print(f"🎨 Processing request {request.request_id[:8]}... (Queue: {self.generation_queue.qsize()})")
                 
                 # Generate the image using the image generator
                 image = await self.image_generator.generate_image(
@@ -58,7 +59,7 @@ class QueueManager:
                 )
                 
                 # Mark task as done
-                self.request_queue.task_done()
+                self.generation_queue.task_done()
                 self.current_request = None
                 self.is_processing = False
                 
@@ -78,15 +79,15 @@ class QueueManager:
                 break
             except Exception as e:
                 print(f"❌ Error processing request: {e}")
-                self.request_queue.task_done()
+                self.generation_queue.task_done()
                 self.current_request = None
                 self.is_processing = False
     
     async def add_to_queue(self, request: GenerationRequest) -> bool:
         """Add a request to the queue. Returns True if added, False if queue is full"""
         try:
-            await self.request_queue.put(request)
-            print(f"📥 Added request to queue. Position: {self.request_queue.qsize()}")
+            await self.generation_queue.put(request)
+            print(f"📥 Added request to queue. Position: {self.generation_queue.qsize()}")
             return True
         except asyncio.QueueFull:
             print("❌ Queue is full! Cannot add more requests.")
@@ -95,13 +96,13 @@ class QueueManager:
     def get_queue_status(self) -> dict:
         """Get current queue status"""
         return {
-            "queue_size": self.request_queue.qsize(),
+            "queue_size": self.generation_queue.qsize(),
             "is_processing": self.is_processing,
             "current_request_id": self.current_request.request_id[:8] if self.current_request else None,
-            "max_size": self.request_queue.maxsize
+            "max_size": self.generation_queue.maxsize
         }
     
     @property
     def is_running(self) -> bool:
         """Check if the queue worker is running."""
-        return self.queue_worker is not None and not self.queue_worker.done()
+        return self.worker_task is not None and not self.worker_task.done()
