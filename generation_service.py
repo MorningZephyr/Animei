@@ -110,8 +110,8 @@ class GenerationService:
             request_id=str(uuid.uuid4()),
             prompt=prompt_data["prompt"],
             negative_prompt=prompt_data.get("negative_prompt", ""),
-            num_inference_steps=25,
-            cfg_scale=3.5,
+            num_inference_steps=None,  # Will use config default
+            cfg_scale=None,  # Will use config default
             width=512,
             height=512,
             user_id=str(interaction.user.id),
@@ -135,7 +135,7 @@ class GenerationService:
         embed = discord.Embed(title="📥 Request Added to Queue", color=0xffa500)
         embed.add_field(name="Request ID", value=request.request_id[:8], inline=True)
         embed.add_field(name="Position in Queue", value=str(queue_status["queue_size"]), inline=True)
-        embed.add_field(name="Estimated Wait", value=f"~{queue_status['queue_size'] * 30} seconds", inline=True)
+        embed.add_field(name="Estimated Wait", value=f"~{queue_status['queue_size'] * 10} seconds", inline=True)
         embed.add_field(name="Prompt", value=request.prompt[:100] + "..." if len(request.prompt) > 100 else request.prompt, inline=False)
         
         # Add note about current processing

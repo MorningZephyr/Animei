@@ -80,7 +80,7 @@ async def queue_status_command(interaction: discord.Interaction):
         embed.add_field(name="Current Request", value=status["current_request_id"], inline=False)
     
     if status["queue_size"] > 0:
-        embed.add_field(name="Estimated Wait", value=f"~{status['queue_size'] * 30} seconds", inline=False)
+        embed.add_field(name="Estimated Wait", value=f"~{status['queue_size'] * 10} seconds", inline=False)
     
     await interaction.response.send_message(embed=embed)
 

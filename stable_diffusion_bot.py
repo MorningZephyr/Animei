@@ -69,7 +69,13 @@ class StableDiffusionGenerator:
             print(f"❌ Failed to load model: {e}")
             raise
 
-    def _generate_image_sync(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = 28, cfg_scale: float = 7.0, width: int = 512, height: int = 512):
+    def _generate_image_sync(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = None, cfg_scale: float = None, width: int = 512, height: int = 512):
+        # Use config defaults if not specified
+        from config import config
+        if num_inference_steps is None:
+            num_inference_steps = config.default_steps
+        if cfg_scale is None:
+            cfg_scale = config.default_cfg_scale
         """Synchronous image generation - runs in thread pool to avoid blocking event loop"""
         # Prevent NFSW images
         safety_filters = "nsfw, nude, inappropriate, gore"
@@ -95,7 +101,7 @@ class StableDiffusionGenerator:
         print("✅ Image generation completed")
         return result.images[0]
 
-    async def generate_image(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = 28, cfg_scale: float = 7.0, width: int = 512, height: int = 512):
+    async def generate_image(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = None, cfg_scale: float = None, width: int = 512, height: int = 512):
         """Async wrapper that runs image generation in thread pool to prevent blocking"""
         if self.pipe is None:
             await self.load_model()

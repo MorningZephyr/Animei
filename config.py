@@ -16,6 +16,12 @@ class Config:
         self.model_path = os.getenv('MODEL_PATH', r'C:\Stable Diffusion\stable-diffusion-webui\models\Stable-diffusion\anythingV5_fp16.safetensors')
         self.model_device = os.getenv('MODEL_DEVICE', 'cuda' if torch.cuda.is_available() else 'cpu')
         
+        # ========================================
+        # 🎨 IMAGE GENERATION SETTINGS
+        # ========================================
+        self.default_steps = int(os.getenv('DEFAULT_STEPS', '28'))
+        self.default_cfg_scale = float(os.getenv('DEFAULT_CFG_SCALE', '7.0'))
+        
         # Validate configuration
         self._validate_config()
     
