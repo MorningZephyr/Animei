@@ -79,7 +79,7 @@ Negative: "blurry, low quality, bad anatomy, extra fingers, watermark, text"
    ```
 
 2. **Set up configuration:**
-   - Copy `env_example.txt` to `.env`
+   - Copy `.env_example.txt` to `.env`
    - Add your Discord bot token to `DISCORD_BOT_TOKEN`
    - Update `MODEL_PATH` if your model is in a different location
    - `MODEL_DEVICE` will auto-detect GPU
@@ -94,10 +94,10 @@ Negative: "blurry, low quality, bad anatomy, extra fingers, watermark, text"
 ## 🔧 Configuration
 
 The bot uses sensible defaults optimized for anime generation:
-- **Steps**: 25 (good balance of quality vs speed)
-- **CFG Scale**: 3.5 (anime-optimized)
+- **Steps**: 28 (good balance of quality vs speed)
+- **CFG Scale**: 7.0 (anime-optimized)
 - **Size**: 512x512 (standard SD 1.5)
-- **Queue Size**: 50 requests max
+- **Queue Size**: 100 requests max
 - **Safety Filters**: Built-in NSFW prevention
 
 ## 💡 Technical Details
