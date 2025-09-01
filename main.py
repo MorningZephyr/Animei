@@ -1,9 +1,7 @@
 import discord
 from discord.ext import commands
-import os
 import asyncio
 from stable_diffusion_bot import StableDiffusionGenerator
-from queue_manager import QueueManager
 from ui_modal import UIModal
 from generation_service import GenerationService
 from config import config
