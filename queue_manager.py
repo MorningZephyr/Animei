@@ -14,7 +14,7 @@ class QueueManager:
         self.image_generator = image_generator  # Referencing the image generator class
         
         # Queue system for handling multiple requests
-        self.generation_queue = asyncio.Queue(maxsize=50)  # Limit queue size
+        self.generation_queue = asyncio.Queue(maxsize=100)  # Increased for better scalability
         self.current_request: Optional[GenerationRequest] = None
         self.is_processing: bool = False
         self.worker_task: Optional[asyncio.Task] = None
@@ -49,6 +49,7 @@ class QueueManager:
                 print(f"🎨 Processing request {request.request_id[:8]}... (Queue: {self.generation_queue.qsize()})")
                 
                 # Generate the image using the image generator
+                # GPU operations are naturally non-blocking, so we can call directly
                 image = await self.image_generator.generate_image(
                     prompt=request.prompt,
                     negative_prompt=request.negative_prompt,
