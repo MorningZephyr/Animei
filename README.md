@@ -78,7 +78,11 @@ Negative: "blurry, low quality, bad anatomy, extra fingers, watermark, text"
    pip install -r requirements.txt
    ```
 
-2. **Set up your Discord bot token in `.env`**
+2. **Set up configuration:**
+   - Copy `env.example` to `.env`
+   - Add your Discord bot token to `DISCORD_BOT_TOKEN`
+   - Update `MODEL_PATH` if your model is in a different location
+   - `MODEL_DEVICE` will auto-detect GPU
 
 3. **Download AnythingV5 model** and place it in the models folder
 
