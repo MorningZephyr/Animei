@@ -79,7 +79,7 @@ Negative: "blurry, low quality, bad anatomy, extra fingers, watermark, text"
    ```
 
 2. **Set up configuration:**
-   - Copy `env.example` to `.env`
+   - Copy `env_example.txt` to `.env`
    - Add your Discord bot token to `DISCORD_BOT_TOKEN`
    - Update `MODEL_PATH` if your model is in a different location
    - `MODEL_DEVICE` will auto-detect GPU
