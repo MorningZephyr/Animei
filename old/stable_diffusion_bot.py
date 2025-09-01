@@ -1,0 +1,233 @@
+import torch
+from diffusers import StableDiffusionPipeline, EulerAncestralDiscreteScheduler
+import os
+import asyncio
+from dataclasses import dataclass
+from typing import Optional, Callable, Dict, Any
+import uuid
+import concurrent.futures
+import functools
+
+
+@dataclass
+class GenerationRequest:
+    """Represents a single image generation request"""
+    request_id: str
+    prompt: str
+    negative_prompt: str = ""
+    num_inference_steps: int = 28
+    cfg_scale: float = 7.0
+    width: int = 512
+    height: int = 512
+    user_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    callback: Optional[Callable] = None  # Function to call when image is ready
+    callback_data: Optional[Dict[str, Any]] = None  # Extra data for callback
+    
+    def __post_init__(self):
+        if not self.request_id:
+            self.request_id = str(uuid.uuid4())
+
+
+class StableDiffusionBot:
+    def __init__(self, model_path: str = r"C:\Stable Diffusion\stable-diffusion-webui\models\Stable-diffusion\anythingV5_fp16.safetensors"):
+        self.model_path = model_path
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.pipe = None
+        
+        # Queue system for handling multiple requests
+        self.request_queue = asyncio.Queue(maxsize=50)  # Limit queue size
+        self.current_request = None
+        self.is_processing = False
+        self.queue_worker_task = None
+        
+        # Thread pool for CPU/GPU intensive tasks (prevents blocking event loop)
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+        # Device info
+        if self.device == "cuda":
+            print(f"🚀 GPU detected: {torch.cuda.get_device_name(0)}")
+            print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
+        else:
+            print("🐌 Using CPU (will be slower)")
+        
+    async def load_model(self):
+        """Loads the local Anything V5 model into memory"""
+        if self.pipe is not None:
+            return
+        
+        # Check if model file exists
+        if not os.path.exists(self.model_path):
+            print(f"❌ Model file not found: {self.model_path}")
+            print("Please download the Anything V5 model and place it in the models/Stable-diffusion/ folder")
+            return
+        
+        print(f"📥 Loading local model: {self.model_path}")
+
+        try:
+            # Load the local model
+            self.pipe = StableDiffusionPipeline.from_single_file(
+                self.model_path,
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                use_safetensors=True,
+                load_safety_checker=False
+            )
+            
+            # Use Euler A scheduler (great for anime models)
+            self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+                self.pipe.scheduler.config
+            )
+            
+            self.pipe = self.pipe.to(self.device)
+            
+            # Memory optimizations for SD 1.5
+            if self.device == "cuda":
+                self.pipe.enable_attention_slicing()
+                # Optional: enable memory efficient attention if available
+                try:
+                    self.pipe.enable_memory_efficient_attention()
+                    print("✅ Memory efficient attention enabled")
+                except:
+                    print("⚠️  Memory efficient attention not available")
+            
+            print("✅ Anything V5 model loaded successfully!")
+            
+        except Exception as e:
+            print(f"❌ Failed to load model: {e}")
+            raise
+
+    def _generate_image_sync(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = 28, cfg_scale: float = 7.0, width: int = 512, height: int = 512):
+        """Synchronous image generation - runs in thread pool to avoid blocking event loop"""
+        # Prevent NFSW images
+        safety_filters = "nsfw, nude, inappropriate, gore"
+        negative_prompt = safety_filters if not negative_prompt else f"{negative_prompt}, {safety_filters}"
+
+        # Add quality tags that WebUI uses
+        quality_tags = "masterpiece, best quality, "
+        prompt = quality_tags + prompt if not prompt.startswith(quality_tags) else prompt
+
+        # Use recommended settings for Anything V5
+        print(f"🎨 Generating with prompt: {prompt[:50]}...")
+        print(f"   Steps: {num_inference_steps}, CFG: {cfg_scale}, Size: {width}x{height}")
+        
+        result = self.pipe(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=cfg_scale,
+            width=width,
+            height=height,
+        )
+        
+        print("✅ Image generation completed")
+        return result.images[0]
+
+    async def generate_image(self, prompt: str, negative_prompt: str = "", num_inference_steps: int = 28, cfg_scale: float = 7.0, width: int = 512, height: int = 512):
+        """Async wrapper that runs image generation in thread pool to prevent blocking"""
+        if self.pipe is None:
+            await self.load_model()
+
+        # Run the sync generation in thread pool to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        image = await loop.run_in_executor(
+            self.executor,
+            functools.partial(
+                self._generate_image_sync,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=num_inference_steps,
+                cfg_scale=cfg_scale,
+                width=width,
+                height=height
+            )
+        )
+        
+        return image
+    
+    async def start_queue_worker(self):
+        """Start the queue worker to process requests sequentially"""
+        if self.queue_worker_task is None or self.queue_worker_task.done():
+            self.queue_worker_task = asyncio.create_task(self._queue_worker())
+            print("🔄 Queue worker started")
+    
+    async def stop_queue_worker(self):
+        """Stop the queue worker"""
+        if self.queue_worker_task and not self.queue_worker_task.done():
+            self.queue_worker_task.cancel()
+            try:
+                await self.queue_worker_task
+            except asyncio.CancelledError:
+                pass
+            print("⏹️ Queue worker stopped")
+    
+    def cleanup(self):
+        """Clean up resources"""
+        if self.executor:
+            self.executor.shutdown(wait=True)
+            print("🧹 Thread pool executor shut down")
+    
+    async def _queue_worker(self):
+        """Background worker that processes requests from the queue"""
+        print("🔄 Queue worker running...")
+        while True:
+            try:
+                # Wait for a request (this blocks if queue is empty)
+                request = await self.request_queue.get()
+                
+                self.current_request = request
+                self.is_processing = True
+                print(f"🎨 Processing request {request.request_id[:8]}... (Queue: {self.request_queue.qsize()})")
+                
+                # Generate the image
+                image = await self.generate_image(
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    num_inference_steps=request.num_inference_steps,
+                    cfg_scale=request.cfg_scale,
+                    width=request.width,
+                    height=request.height
+                )
+                
+                # Mark task as done
+                self.request_queue.task_done()
+                self.current_request = None
+                self.is_processing = False
+                
+                print(f"✅ Completed request {request.request_id[:8]}")
+                
+                # Call the callback function to deliver the image
+                if request.callback:
+                    try:
+                        await request.callback(image, request)
+                    except Exception as callback_error:
+                        print(f"❌ Callback error for request {request.request_id[:8]}: {callback_error}")
+                else:
+                    print(f"⚠️  No callback set for request {request.request_id[:8]} - image not delivered")
+                
+            except asyncio.CancelledError:
+                print("🛑 Queue worker cancelled")
+                break
+            except Exception as e:
+                print(f"❌ Error processing request: {e}")
+                self.request_queue.task_done()
+                self.current_request = None
+                self.is_processing = False
+    
+    async def add_to_queue(self, request: GenerationRequest) -> bool:
+        """Add a request to the queue. Returns True if added, False if queue is full"""
+        try:
+            await self.request_queue.put(request)
+            print(f"📥 Added request to queue. Position: {self.request_queue.qsize()}")
+            return True
+        except asyncio.QueueFull:
+            print("❌ Queue is full! Cannot add more requests.")
+            return False
+    
+    def get_queue_status(self) -> dict:
+        """Get current queue status"""
+        return {
+            "queue_size": self.request_queue.qsize(),
+            "is_processing": self.is_processing,
+            "current_request_id": self.current_request.request_id[:8] if self.current_request else None,
+            "max_size": self.request_queue.maxsize
+        }
