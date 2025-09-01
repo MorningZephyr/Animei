@@ -8,9 +8,10 @@ import functools
 class StableDiffusionGenerator:
     """Handles Stable Diffusion model loading and image generation."""
     
-    def __init__(self, model_path: str = r"C:\Stable Diffusion\stable-diffusion-webui\models\Stable-diffusion\anythingV5_fp16.safetensors"):
-        self.model_path = model_path
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    def __init__(self, model_path: str = None):
+        from config import config
+        self.model_path = model_path or config.model_path
+        self.device = config.model_device
         self.pipe = None
         
         # Thread pool for CPU/GPU intensive tasks (prevents blocking event loop)

@@ -6,9 +6,7 @@ from stable_diffusion_bot import StableDiffusionGenerator
 from queue_manager import QueueManager
 from ui_modal import UIModal
 from generation_service import GenerationService
-from dotenv import load_dotenv
-
-load_dotenv()
+from config import config
 
 # --- Loading the Bot ---
 intents = discord.Intents.default()
@@ -90,7 +88,7 @@ async def queue_status_command(interaction: discord.Interaction):
 
 if __name__ == "__main__":
     try:
-        bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+        bot.run(config.discord_token)
     except KeyboardInterrupt:
         print("\n⚠️ Shutdown requested by user (Ctrl+C)")
     except Exception as e:
