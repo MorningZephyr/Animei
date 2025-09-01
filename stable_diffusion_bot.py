@@ -1,45 +1,17 @@
 import torch
 from diffusers import StableDiffusionPipeline, EulerAncestralDiscreteScheduler
 import os
-import asyncio
-from dataclasses import dataclass
-from typing import Optional, Callable, Dict, Any
-import uuid
 import concurrent.futures
 import functools
 
 
-@dataclass
-class GenerationRequest:
-    """Represents a single image generation request"""
-    request_id: str
-    prompt: str
-    negative_prompt: str = ""
-    num_inference_steps: int = 28
-    cfg_scale: float = 7.0
-    width: int = 512
-    height: int = 512
-    user_id: Optional[str] = None
-    channel_id: Optional[str] = None
-    callback: Optional[Callable] = None  # Function to call when image is ready
-    callback_data: Optional[Dict[str, Any]] = None  # Extra data for callback
+class StableDiffusionGenerator:
+    """Handles Stable Diffusion model loading and image generation."""
     
-    def __post_init__(self):
-        if not self.request_id:
-            self.request_id = str(uuid.uuid4())
-
-
-class StableDiffusionBot:
     def __init__(self, model_path: str = r"C:\Stable Diffusion\stable-diffusion-webui\models\Stable-diffusion\anythingV5_fp16.safetensors"):
         self.model_path = model_path
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.pipe = None
-        
-        # Queue system for handling multiple requests
-        self.request_queue = asyncio.Queue(maxsize=50)  # Limit queue size
-        self.current_request = None
-        self.is_processing = False
-        self.queue_worker_task = None
         
         # Thread pool for CPU/GPU intensive tasks (prevents blocking event loop)
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -128,6 +100,7 @@ class StableDiffusionBot:
             await self.load_model()
 
         # Run the sync generation in thread pool to avoid blocking the event loop
+        import asyncio
         loop = asyncio.get_event_loop()
         image = await loop.run_in_executor(
             self.executor,
@@ -144,90 +117,8 @@ class StableDiffusionBot:
         
         return image
     
-    async def start_queue_worker(self):
-        """Start the queue worker to process requests sequentially"""
-        if self.queue_worker_task is None or self.queue_worker_task.done():
-            self.queue_worker_task = asyncio.create_task(self._queue_worker())
-            print("🔄 Queue worker started")
-    
-    async def stop_queue_worker(self):
-        """Stop the queue worker"""
-        if self.queue_worker_task and not self.queue_worker_task.done():
-            self.queue_worker_task.cancel()
-            try:
-                await self.queue_worker_task
-            except asyncio.CancelledError:
-                pass
-            print("⏹️ Queue worker stopped")
-    
     def cleanup(self):
         """Clean up resources"""
         if self.executor:
             self.executor.shutdown(wait=True)
             print("🧹 Thread pool executor shut down")
-    
-    async def _queue_worker(self):
-        """Background worker that processes requests from the queue"""
-        print("🔄 Queue worker running...")
-        while True:
-            try:
-                # Wait for a request (this blocks if queue is empty)
-                request = await self.request_queue.get()
-                
-                self.current_request = request
-                self.is_processing = True
-                print(f"🎨 Processing request {request.request_id[:8]}... (Queue: {self.request_queue.qsize()})")
-                
-                # Generate the image
-                image = await self.generate_image(
-                    prompt=request.prompt,
-                    negative_prompt=request.negative_prompt,
-                    num_inference_steps=request.num_inference_steps,
-                    cfg_scale=request.cfg_scale,
-                    width=request.width,
-                    height=request.height
-                )
-                
-                # Mark task as done
-                self.request_queue.task_done()
-                self.current_request = None
-                self.is_processing = False
-                
-                print(f"✅ Completed request {request.request_id[:8]}")
-                
-                # Call the callback function to deliver the image
-                if request.callback:
-                    try:
-                        await request.callback(image, request)
-                    except Exception as callback_error:
-                        print(f"❌ Callback error for request {request.request_id[:8]}: {callback_error}")
-                else:
-                    print(f"⚠️  No callback set for request {request.request_id[:8]} - image not delivered")
-                
-            except asyncio.CancelledError:
-                print("🛑 Queue worker cancelled")
-                break
-            except Exception as e:
-                print(f"❌ Error processing request: {e}")
-                self.request_queue.task_done()
-                self.current_request = None
-                self.is_processing = False
-    
-    async def add_to_queue(self, request: GenerationRequest) -> bool:
-        """Add a request to the queue. Returns True if added, False if queue is full"""
-        try:
-            await self.request_queue.put(request)
-            print(f"📥 Added request to queue. Position: {self.request_queue.qsize()}")
-            return True
-        except asyncio.QueueFull:
-            print("❌ Queue is full! Cannot add more requests.")
-            return False
-    
-    def get_queue_status(self) -> dict:
-        """Get current queue status"""
-        return {
-            "queue_size": self.request_queue.qsize(),
-            "is_processing": self.is_processing,
-            "current_request_id": self.current_request.request_id[:8] if self.current_request else None,
-            "max_size": self.request_queue.maxsize
-        }
