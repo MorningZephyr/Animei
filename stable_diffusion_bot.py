@@ -57,6 +57,7 @@ class StableDiffusionGenerator:
             if self.device == "cuda":
                 self.pipe.enable_attention_slicing()
                 # Optional: enable memory efficient attention if available
+                # Since xformers isn't installed, this should be removed
                 try:
                     self.pipe.enable_memory_efficient_attention()
                     print("✅ Memory efficient attention enabled")

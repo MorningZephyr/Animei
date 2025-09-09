@@ -1,5 +1,8 @@
 """
-Queue manager for handling image generation requests.
+Queue manager for handling image generation requests. It'll:
+    - take in requests, 
+    - queue them, 
+    - process them one at a time.
 """
 
 import asyncio
